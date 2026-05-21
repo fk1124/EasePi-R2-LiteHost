@@ -7,6 +7,8 @@
 : "${EASEPI_R2_LIBMALI_DEB_URL:=https://github.com/tsukumijima/libmali-rockchip/releases/download/v1.9-1-20260312-bd33ee2/libmali-valhall-g610-g24p0-gbm_1.9-1_arm64.deb}"
 : "${EASEPI_R2_LIBMALI_DEB_SHA256:=32ffe853e8d56295284637252f1da15dd868a8f7c6b8da6b9f77616ba285eb1a}"
 : "${EASEPI_R2_VENDOR_HDMI_DEBUG:=no}"
+: "${EASEPI_R2_LITEHOST_PRUNE_PACKAGES:=yes}"
+: "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP:=yes}"
 
 function extension_prepare_config__easepi_r2_peripherals() {
 	display_alert "Extension: EasePi-R2 Peripherals" "IR + Bluetooth + networkd router base" "info"
@@ -125,6 +127,127 @@ function easepi_r2_stage_vendor_libmali() {
 	fi
 	printf '%s  %s\n' "${EASEPI_R2_LIBMALI_DEB_SHA256}" "${deb_path}" | sha256sum -c -
 	cp -f "${deb_path}" "${SDCARD}/tmp/easepi-r2-libmali.deb"
+}
+
+function easepi_r2_apt_install_best_effort() {
+	local apt_opts=(
+		-y --no-install-recommends
+		-o Dpkg::Options::=--force-confdef
+		-o Dpkg::Options::=--force-confold
+	)
+	local pkg
+
+	[[ "$#" -gt 0 ]] || return 0
+
+	if chroot_sdcard apt-get install "${apt_opts[@]}" "$@"; then
+		return 0
+	fi
+
+	display_alert "EasePi-R2 LiteHost" "Retrying packages one by one" "wrn"
+	for pkg in "$@"; do
+		chroot_sdcard apt-get install "${apt_opts[@]}" "${pkg}" || \
+			display_alert "EasePi-R2 LiteHost" "Optional package skipped: ${pkg}" "wrn"
+	done
+
+	return 0
+}
+
+function easepi_r2_configure_litehost_defaults() {
+	display_alert "EasePi-R2 LiteHost" "Configuring LXC and Redroid host defaults" "info"
+
+	mkdir -p \
+		"${SDCARD}/etc/lxc" \
+		"${SDCARD}/var/lib/lxc" \
+		"${SDCARD}/var/cache/lxc" \
+		"${SDCARD}/usr/local/sbin" \
+		"${SDCARD}/etc/systemd/system/multi-user.target.wants"
+
+	grep -q '^root:100000:65536$' "${SDCARD}/etc/subuid" 2>/dev/null || \
+		echo 'root:100000:65536' >> "${SDCARD}/etc/subuid"
+	grep -q '^root:100000:65536$' "${SDCARD}/etc/subgid" 2>/dev/null || \
+		echo 'root:100000:65536' >> "${SDCARD}/etc/subgid"
+
+	cat > "${SDCARD}/etc/lxc/default.conf" <<'EOF_LXC_DEFAULT'
+lxc.include = /usr/share/lxc/config/common.conf
+lxc.apparmor.profile = generated
+lxc.apparmor.allow_nesting = 1
+lxc.net.0.type = veth
+lxc.net.0.link = br-lan
+lxc.net.0.flags = up
+lxc.net.0.name = eth0
+EOF_LXC_DEFAULT
+
+	cat > "${SDCARD}/etc/lxc/lxc-usernet" <<'EOF_LXC_USERNET'
+root veth br-lan 32
+EOF_LXC_USERNET
+
+	cat > "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep" <<'EOF_REDROID_PREP'
+#!/usr/bin/env bash
+set -euo pipefail
+
+modprobe binder_linux devices=binder,hwbinder,vndbinder,anbox-binder,anbox-hwbinder,anbox-vndbinder 2>/dev/null || true
+modprobe ashmem_linux 2>/dev/null || true
+modprobe br_netfilter 2>/dev/null || true
+modprobe overlay 2>/dev/null || true
+modprobe veth 2>/dev/null || true
+modprobe tun 2>/dev/null || true
+modprobe 8021q 2>/dev/null || true
+
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
+sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1 || true
+sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1 || true
+
+mkdir -p /dev/binderfs
+if grep -qw binder /proc/filesystems; then
+	mountpoint -q /dev/binderfs || mount -t binder binder /dev/binderfs 2>/dev/null || true
+fi
+
+for dev in \
+	/dev/binderfs/binder \
+	/dev/binderfs/hwbinder \
+	/dev/binderfs/vndbinder \
+	/dev/binderfs/anbox-binder \
+	/dev/binderfs/anbox-hwbinder \
+	/dev/binderfs/anbox-vndbinder \
+	/dev/ashmem; do
+	[[ -e "${dev}" ]] || continue
+	chmod 0666 "${dev}" 2>/dev/null || true
+done
+EOF_REDROID_PREP
+	chmod 0755 "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep"
+
+	cat > "${SDCARD}/etc/systemd/system/easepi-r2-redroid-host-prep.service" <<'EOF_REDROID_SERVICE'
+[Unit]
+Description=Prepare BinderFS and Ashmem for Redroid containers
+After=systemd-modules-load.service local-fs.target
+Before=lxc.service lxc-net.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/easepi-r2-redroid-host-prep
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF_REDROID_SERVICE
+
+	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
+		ln -sfn ../easepi-r2-redroid-host-prep.service \
+			"${SDCARD}/etc/systemd/system/multi-user.target.wants/easepi-r2-redroid-host-prep.service"
+	fi
+}
+
+function easepi_r2_prune_litehost_packages() {
+	[[ "${EASEPI_R2_LITEHOST_PRUNE_PACKAGES}" == "yes" ]] || return 0
+
+	display_alert "EasePi-R2 LiteHost" "Removing unused host networking packages" "info"
+	chroot_sdcard systemctl disable NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
+	chroot_sdcard systemctl mask NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
+	chroot_sdcard apt-get purge -y --autoremove \
+		network-manager network-manager-gnome netplan.io ifupdown \
+		isc-dhcp-client isc-dhcp-common modemmanager avahi-daemon avahi-autoipd \
+		cloud-init unattended-upgrades openresolv resolvconf || true
 }
 
 function pre_customize_image__copy_easepi_r2_peripheral_files() {
@@ -324,13 +447,14 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	display_alert "EasePi-R2" "Enabling peripheral services" "info"
 
 	# Armbian's extension path does not consume rootfs/debian/packages-*.txt.
-	# Install the router runtime explicitly so first boot has working DHCP/NAT.
+	# Install the LiteHost runtime explicitly so first boot is ready for
+	# LXC OpenWrt, LXC Debian, and Redroid workloads.
 	# Important: the overlay already contains /etc/nftables.conf. If nftables is
 	# installed after that file exists, dpkg asks a conffile question and Armbian's
 	# non-interactive chroot build fails with "end of file on stdin". Temporarily
 	# move our custom nftables.conf away, install packages, then restore it. The
 	# dpkg options are kept as an additional guard for future conffile changes.
-	display_alert "EasePi-R2" "Installing router runtime packages" "info"
+	display_alert "EasePi-R2 LiteHost" "Installing host runtime packages" "info"
 	local R2_NFT_BACKUP="${SDCARD}/tmp/easepi-r2-nftables.conf.router"
 	mkdir -p "${SDCARD}/tmp"
 	easepi_r2_stage_vendor_libmali
@@ -338,12 +462,19 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		mv "${SDCARD}/etc/nftables.conf" "${R2_NFT_BACKUP}"
 	fi
 	local EASEPI_R2_COMMON_RUNTIME=(
+		systemd-container dbus-user-session
+		lxc lxcfs lxc-templates uidmap libpam-cgfs
+		debootstrap mmdebstrap qemu-user-static binfmt-support
+		fuse-overlayfs slirp4netns criu
 		iproute2 iputils-ping ethtool bridge-utils
-		dnsmasq nftables iptables
-		ppp pppoe curl ca-certificates
+		dnsmasq nftables iptables ebtables arptables
+		conntrack ipset tcpdump socat iperf3
+		ppp pppoe curl ca-certificates rsync zstd xz-utils unzip
+		jq htop iotop iftop nload tmux screen vim-tiny nano less lsof strace
+		usbutils pciutils kmod
 		wpasupplicant hostapd
 		rfkill bluetooth bluez bluez-tools
-		v4l-utils
+		v4l-utils android-tools-adb android-tools-fastboot
 	)
 	local EASEPI_R2_GPU_RUNTIME=()
 	if [[ "${BRANCH:-current}" == "vendor" ]]; then
@@ -356,29 +487,21 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		)
 	fi
 	chroot_sdcard apt-get update || true
-	chroot_sdcard apt-get install -y --no-install-recommends \
-		-o Dpkg::Options::=--force-confdef \
-		-o Dpkg::Options::=--force-confold \
+	easepi_r2_apt_install_best_effort \
 		"${EASEPI_R2_COMMON_RUNTIME[@]}" \
-		"${EASEPI_R2_GPU_RUNTIME[@]}" || true
-	if ! chroot_sdcard apt-get install -y --no-install-recommends \
-		-o Dpkg::Options::=--force-confdef \
-		-o Dpkg::Options::=--force-confold \
-		bluez-firmware; then
-		display_alert "EasePi-R2" "Optional bluez-firmware package not available" "wrn"
-	fi
+		"${EASEPI_R2_GPU_RUNTIME[@]}"
+	easepi_r2_apt_install_best_effort bluez-firmware || true
 	if [[ -f "${R2_NFT_BACKUP}" ]]; then
 		mv "${R2_NFT_BACKUP}" "${SDCARD}/etc/nftables.conf"
 	fi
 	if [[ "${BRANCH:-current}" == "vendor" && "${EASEPI_R2_VENDOR_GPU_STACK}" == "libmali" && -f "${SDCARD}/tmp/easepi-r2-libmali.deb" ]]; then
 		chroot_sdcard apt-get update || true
-		chroot_sdcard apt-get install -y --no-install-recommends \
-			-o Dpkg::Options::=--force-confdef \
-			-o Dpkg::Options::=--force-confold \
-			libdrm2 libgbm1 ocl-icd-libopencl1 clinfo v4l-utils ca-certificates || true
+		easepi_r2_apt_install_best_effort libdrm2 libgbm1 ocl-icd-libopencl1 clinfo v4l-utils ca-certificates
 		chroot_sdcard dpkg -i /tmp/easepi-r2-libmali.deb || chroot_sdcard apt-get -f install -y
 		rm -f "${SDCARD}/tmp/easepi-r2-libmali.deb"
 	fi
+	easepi_r2_configure_litehost_defaults
+	easepi_r2_prune_litehost_packages
 	easepi_r2_fix_brcm_firmware_aliases
 	easepi_r2_tune_vendor_bootenv
 	easepi_r2_enable_vendor_hdmi_debug
@@ -415,6 +538,10 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl enable systemd-networkd.service || true
 	chroot_sdcard systemctl enable dnsmasq.service || true
 	chroot_sdcard systemctl enable nftables.service || true
+	chroot_sdcard systemctl enable lxcfs.service || true
+	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
+		chroot_sdcard systemctl enable easepi-r2-redroid-host-prep.service || true
+	fi
 	# This service only waits for network-online and commonly times out on router
 	# devices with unplugged LAN/backup-WAN ports. It is not needed for DHCP/NAT.
 	chroot_sdcard systemctl disable systemd-networkd-wait-online.service || true

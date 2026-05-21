@@ -1,6 +1,6 @@
 # Project Structure
 
-`EasePi-R2-LiteHost` is a focused Armbian minimal image build kit for EasePi-R2.
+`EasePi-R2-LiteHost` is a focused Armbian minimal based host image build kit for EasePi-R2. The images are prepared for LXC OpenWrt, LXC Debian, and Redroid workloads.
 
 ```text
 build-image.sh                 Public dispatcher for the three LiteHost targets

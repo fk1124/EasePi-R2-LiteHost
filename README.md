@@ -1,8 +1,8 @@
 # EasePi-R2-LiteHost
 
-**EasePi-R2** 精简 Armbian minimal 镜像构建项目。
+**EasePi-R2** 轻量宿主系统构建项目，以 Armbian minimal 为底座，面向 LXC OpenWrt、LXC Debian 和 Redroid。
 
-本仓库从 [EasePi-R2-Image-Build](https://github.com/fk1124/EasePi-R2-Image-Build) 精简而来，只保留 LiteHost 需要的 3 个 Armbian minimal 镜像目标，方便后续在固定基础镜像上做精改。
+本仓库从 [EasePi-R2-Image-Build](https://github.com/fk1124/EasePi-R2-Image-Build) 精简而来，只保留 LiteHost 需要的 3 个 Armbian minimal 镜像目标，并预置 LXC、systemd-networkd、nftables、BinderFS/Redroid 相关宿主能力。
 
 ## 编译环境要求
 
@@ -93,5 +93,7 @@ ARMBIAN_BUILD_DIR=/path/to/build bash build-image.sh armbian trixie 6.18 minimal
 
 - 本仓库只做 Armbian minimal，不包含 server、desktop、Debian/Ubuntu BSP、Alpine、Fedora、Arch、Kali、OpenWrt 等目标。
 - `6.1` 映射到 `vendor`，`6.18` 映射到 `current`，`7.0` 映射到 `linux7`。
+- vendor 6.1 保留 Mali/libmali 路线，默认不会加载 Panthor。
+- 构建时会清理 NetworkManager、netplan、cloud-init、ModemManager、Avahi 等宿主机不需要的组件，默认使用 systemd-networkd + dnsmasq + nftables。
 - 构建输出仍由 Armbian build 系统写入 `build/output/images/`。
 - 常用参数示例：`CPUTHREADS=8`、`REGIONAL_MIRROR=china`、`MAINLINE_MIRROR=google`。

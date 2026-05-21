@@ -384,6 +384,179 @@ enable_vfio_iommu_capabilities() {
     set_kernel_config_value "${file}" "CONFIG_ARM_SMMU_V3_IOMMUFD" "y"
 }
 
+enable_litehost_kernel_capabilities() {
+    local file="$1"
+    local cfg="$2"
+    local option
+
+    local host_bool_options=(
+        CONFIG_POSIX_MQUEUE
+        CONFIG_PSI
+        CONFIG_CGROUPS
+        CONFIG_BLK_CGROUP
+        CONFIG_CGROUP_SCHED
+        CONFIG_FAIR_GROUP_SCHED
+        CONFIG_CFS_BANDWIDTH
+        CONFIG_CGROUP_PIDS
+        CONFIG_CGROUP_RDMA
+        CONFIG_CGROUP_FREEZER
+        CONFIG_CGROUP_HUGETLB
+        CONFIG_CPUSETS
+        CONFIG_CGROUP_DEVICE
+        CONFIG_CGROUP_CPUACCT
+        CONFIG_CGROUP_PERF
+        CONFIG_CGROUP_BPF
+        CONFIG_CGROUP_MISC
+        CONFIG_MEMCG
+        CONFIG_MEMCG_SWAP
+        CONFIG_NAMESPACES
+        CONFIG_UTS_NS
+        CONFIG_IPC_NS
+        CONFIG_USER_NS
+        CONFIG_PID_NS
+        CONFIG_NET_NS
+        CONFIG_CGROUP_NS
+        CONFIG_TIME_NS
+        CONFIG_CHECKPOINT_RESTORE
+        CONFIG_SECCOMP
+        CONFIG_SECCOMP_FILTER
+        CONFIG_KEYS
+        CONFIG_DEVPTS_MULTIPLE_INSTANCES
+        CONFIG_TMPFS_POSIX_ACL
+        CONFIG_TMPFS_XATTR
+        CONFIG_HUGETLBFS
+        CONFIG_BPF_SYSCALL
+        CONFIG_BPF_JIT
+        CONFIG_BPF_LSM
+        CONFIG_NETFILTER
+        CONFIG_NETFILTER_ADVANCED
+        CONFIG_NF_TABLES_INET
+        CONFIG_NF_TABLES_NETDEV
+        CONFIG_NF_TABLES_ARP
+        CONFIG_BRIDGE_VLAN_FILTERING
+        CONFIG_VLAN_8021Q_GVRP
+        CONFIG_VLAN_8021Q_MVRP
+        CONFIG_ANDROID_BINDER_IPC
+        CONFIG_ANDROID_BINDERFS
+        CONFIG_SQUASHFS_XATTR
+        CONFIG_SQUASHFS_LZ4
+        CONFIG_SQUASHFS_LZO
+        CONFIG_SQUASHFS_XZ
+        CONFIG_SQUASHFS_ZSTD
+        CONFIG_DEVTMPFS
+        CONFIG_DEVTMPFS_MOUNT
+        CONFIG_KVM
+    )
+
+    local host_module_options=(
+        CONFIG_BINFMT_MISC
+        CONFIG_OVERLAY_FS
+        CONFIG_FUSE_FS
+        CONFIG_SQUASHFS
+        CONFIG_EROFS_FS
+        CONFIG_BLK_DEV_LOOP
+        CONFIG_NBD
+        CONFIG_DM_THIN_PROVISIONING
+        CONFIG_BRIDGE
+        CONFIG_BRIDGE_NETFILTER
+        CONFIG_VLAN_8021Q
+        CONFIG_VETH
+        CONFIG_TUN
+        CONFIG_DUMMY
+        CONFIG_IFB
+        CONFIG_MACVLAN
+        CONFIG_MACVTAP
+        CONFIG_IPVLAN
+        CONFIG_VXLAN
+        CONFIG_NET_SCH_INGRESS
+        CONFIG_NET_SCH_FQ
+        CONFIG_NET_SCH_FQ_CODEL
+        CONFIG_NET_SCH_CAKE
+        CONFIG_NET_CLS_CGROUP
+        CONFIG_NETFILTER_XTABLES
+        CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+        CONFIG_NETFILTER_XT_MATCH_COMMENT
+        CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+        CONFIG_NETFILTER_XT_MATCH_CGROUP
+        CONFIG_NETFILTER_XT_MATCH_IPVS
+        CONFIG_NETFILTER_XT_MATCH_MAC
+        CONFIG_NETFILTER_XT_MATCH_MARK
+        CONFIG_NETFILTER_XT_MATCH_MULTIPORT
+        CONFIG_NETFILTER_XT_MATCH_PHYSDEV
+        CONFIG_NETFILTER_XT_MATCH_STATE
+        CONFIG_NETFILTER_XT_MATCH_TCPMSS
+        CONFIG_NETFILTER_XT_MATCH_U32
+        CONFIG_NETFILTER_XT_TARGET_CHECKSUM
+        CONFIG_NETFILTER_XT_TARGET_MASQUERADE
+        CONFIG_NETFILTER_XT_TARGET_REDIRECT
+        CONFIG_NETFILTER_XT_TARGET_TCPMSS
+        CONFIG_NF_TABLES
+        CONFIG_NF_TABLES_BRIDGE
+        CONFIG_NFT_BRIDGE_META
+        CONFIG_NFT_BRIDGE_REJECT
+        CONFIG_NFT_COMPAT
+        CONFIG_NFT_CT
+        CONFIG_NFT_FIB_INET
+        CONFIG_NFT_FLOW_OFFLOAD
+        CONFIG_NFT_LIMIT
+        CONFIG_NFT_LOG
+        CONFIG_NFT_MASQ
+        CONFIG_NFT_NAT
+        CONFIG_NFT_REDIR
+        CONFIG_NFT_REJECT
+        CONFIG_NFT_TPROXY
+        CONFIG_NFT_TUNNEL
+        CONFIG_NF_CONNTRACK
+        CONFIG_NF_NAT
+        CONFIG_NF_FLOW_TABLE
+        CONFIG_IP_SET
+        CONFIG_IP_NF_IPTABLES
+        CONFIG_IP_NF_FILTER
+        CONFIG_IP_NF_NAT
+        CONFIG_IP_NF_TARGET_MASQUERADE
+        CONFIG_IP_NF_TARGET_REDIRECT
+        CONFIG_IP_NF_MANGLE
+        CONFIG_IP_NF_RAW
+        CONFIG_IP6_NF_IPTABLES
+        CONFIG_IP6_NF_FILTER
+        CONFIG_IP6_NF_NAT
+        CONFIG_IP6_NF_TARGET_MASQUERADE
+        CONFIG_IP6_NF_MANGLE
+        CONFIG_IP6_NF_RAW
+        CONFIG_BRIDGE_NF_EBTABLES
+        CONFIG_BRIDGE_EBT_T_FILTER
+        CONFIG_BRIDGE_EBT_T_NAT
+        CONFIG_BRIDGE_EBT_BROUTE
+        CONFIG_NFS_FS
+        CONFIG_NFSD
+        CONFIG_CIFS
+        CONFIG_ISCSI_TCP
+        CONFIG_ISCSI_TARGET
+        CONFIG_ZRAM
+        CONFIG_CRYPTO_USER
+        CONFIG_CRYPTO_USER_API_HASH
+        CONFIG_CRYPTO_USER_API_SKCIPHER
+        CONFIG_CRYPTO_USER_API_RNG
+        CONFIG_CRYPTO_USER_API_AEAD
+    )
+
+    for option in "${host_bool_options[@]}"; do
+        set_kernel_config_value "${file}" "${option}" "y"
+    done
+
+    for option in "${host_module_options[@]}"; do
+        set_kernel_config_value "${file}" "${option}" "m"
+    done
+
+    set_kernel_config_value "${file}" "CONFIG_ANDROID_BINDER_DEVICES" '"binder,hwbinder,vndbinder,anbox-binder,anbox-hwbinder,anbox-vndbinder"'
+    set_kernel_config_value "${file}" "CONFIG_ASHMEM" "y"
+
+    if [ "${cfg}" = "linux-rk35xx-vendor.config" ]; then
+        set_kernel_config_value "${file}" "CONFIG_DRM_PANTHOR" "m"
+        set_kernel_config_value "${file}" "CONFIG_DRM_PANFROST" "m"
+    fi
+}
+
 prepare_kernel_configs() {
     bash "${REPO_DIR}/scripts/sync-root-scripts.sh"
 
@@ -447,6 +620,7 @@ prepare_kernel_configs() {
             echo '# CONFIG_DRM_PANEL_SIMPLE_DSI is not set' >> "${dst}"
 
         enable_vfio_iommu_capabilities "${dst}" "${cfg}"
+        enable_litehost_kernel_capabilities "${dst}" "${cfg}"
 
         if [ "${cfg}" = "linux-rk35xx-vendor.config" ]; then
             set_kernel_config_value "${dst}" "CONFIG_R8125" "m"
@@ -568,7 +742,7 @@ prepare_kernel_configs
 prepare_vendor_clean_build
 
 printf '============================================\n'
-printf '  EasePi-R2 Armbian Image Build\n'
+printf '  EasePi-R2 LiteHost Image Build\n'
 printf '============================================\n'
 printf 'Build directory : %s\n' "${BUILD_DIR}"
 printf 'Board           : %s\n' "${BOARD}"
@@ -577,6 +751,7 @@ printf 'Armbian branch  : %s\n' "${ARMBIAN_BRANCH}"
 printf 'Kernel profile  : %s\n' "${EASEPI_R2_KERNEL_PROFILE:-default}"
 printf 'Release         : %s\n' "${RELEASE}"
 printf 'Image type      : %s\n' "${IMAGE_TYPE}"
+printf 'Role            : LXC OpenWrt + LXC Debian + Redroid host\n'
 printf 'Kernel git      : %s\n' "${KERNEL_GIT}"
 printf 'Regional mirror : %s\n' "${REGIONAL_MIRROR:-none}"
 printf 'Mainline mirror : %s\n' "${MAINLINE_MIRROR:-default}"

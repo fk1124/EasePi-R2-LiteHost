@@ -10,7 +10,8 @@ Usage:
   bash build-image.sh armbian trixie 6.18 minimal
   bash build-image.sh armbian trixie 7.0 minimal
 
-EasePi-R2-LiteHost only keeps native Armbian minimal images for EasePi-R2.
+EasePi-R2-LiteHost builds lightweight Armbian host images for LXC OpenWrt,
+LXC Debian, and Redroid on EasePi-R2.
 
 Kernel aliases:
   6.1  -> vendor
