@@ -132,6 +132,7 @@ function easepi_r2_stage_vendor_libmali() {
 function easepi_r2_apt_install_best_effort() {
 	local apt_opts=(
 		-y --no-install-recommends
+		-o Dpkg::Use-Pty=0
 		-o Dpkg::Options::=--force-confdef
 		-o Dpkg::Options::=--force-confold
 	)
@@ -139,17 +140,29 @@ function easepi_r2_apt_install_best_effort() {
 
 	[[ "$#" -gt 0 ]] || return 0
 
-	if chroot_sdcard apt-get install "${apt_opts[@]}" "$@"; then
+	if chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install "${apt_opts[@]}" "$@"; then
 		return 0
 	fi
 
 	display_alert "EasePi-R2 LiteHost" "Retrying packages one by one" "wrn"
 	for pkg in "$@"; do
-		chroot_sdcard apt-get install "${apt_opts[@]}" "${pkg}" || \
+		chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install "${apt_opts[@]}" "${pkg}" || \
 			display_alert "EasePi-R2 LiteHost" "Optional package skipped: ${pkg}" "wrn"
 	done
 
 	return 0
+}
+
+function easepi_r2_preseed_litehost_debconf() {
+	local preseeds="${SDCARD}/tmp/easepi-r2-litehost-debconf-selections"
+
+	mkdir -p "${SDCARD}/tmp"
+	cat > "${preseeds}" <<'EOF_DEBCONF'
+iperf3 iperf3/start_daemon boolean false
+EOF_DEBCONF
+
+	chroot_sdcard debconf-set-selections /tmp/easepi-r2-litehost-debconf-selections || true
+	rm -f "${preseeds}"
 }
 
 function easepi_r2_configure_litehost_defaults() {
@@ -244,7 +257,7 @@ function easepi_r2_prune_litehost_packages() {
 	display_alert "EasePi-R2 LiteHost" "Removing unused host networking packages" "info"
 	chroot_sdcard systemctl disable NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
 	chroot_sdcard systemctl mask NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
-	chroot_sdcard apt-get purge -y --autoremove \
+	chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y --autoremove \
 		network-manager network-manager-gnome netplan.io ifupdown \
 		isc-dhcp-client isc-dhcp-common modemmanager avahi-daemon avahi-autoipd \
 		cloud-init unattended-upgrades openresolv resolvconf || true
@@ -461,6 +474,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	if [[ -f "${SDCARD}/etc/nftables.conf" ]]; then
 		mv "${SDCARD}/etc/nftables.conf" "${R2_NFT_BACKUP}"
 	fi
+	easepi_r2_preseed_litehost_debconf
 	local EASEPI_R2_COMMON_RUNTIME=(
 		systemd-container dbus-user-session
 		lxc lxcfs lxc-templates uidmap libpam-cgfs
@@ -486,7 +500,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 			kmscube glmark2-es2-drm
 		)
 	fi
-	chroot_sdcard apt-get update || true
+	chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update || true
 	easepi_r2_apt_install_best_effort \
 		"${EASEPI_R2_COMMON_RUNTIME[@]}" \
 		"${EASEPI_R2_GPU_RUNTIME[@]}"
@@ -495,9 +509,10 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		mv "${R2_NFT_BACKUP}" "${SDCARD}/etc/nftables.conf"
 	fi
 	if [[ "${BRANCH:-current}" == "vendor" && "${EASEPI_R2_VENDOR_GPU_STACK}" == "libmali" && -f "${SDCARD}/tmp/easepi-r2-libmali.deb" ]]; then
-		chroot_sdcard apt-get update || true
+		chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update || true
 		easepi_r2_apt_install_best_effort libdrm2 libgbm1 ocl-icd-libopencl1 clinfo v4l-utils ca-certificates
-		chroot_sdcard dpkg -i /tmp/easepi-r2-libmali.deb || chroot_sdcard apt-get -f install -y
+		chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/easepi-r2-libmali.deb || \
+			chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
 		rm -f "${SDCARD}/tmp/easepi-r2-libmali.deb"
 	fi
 	easepi_r2_configure_litehost_defaults
