@@ -1,0 +1,11 @@
+# EasePi-R2 IR remote keymap template
+# Test scan codes on the real board with:
+#   ir-keytable -t
+
+[[protocols]]
+name = "easepi_remote"
+protocol = "nec"
+variant = "nec"
+[protocols.scancodes]
+# Example:
+# 0x00 = "KEY_POWER"

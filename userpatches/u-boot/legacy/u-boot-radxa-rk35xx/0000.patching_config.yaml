@@ -1,0 +1,4 @@
+config:
+
+  overlay-directories:
+    - { source: "defconfig", target: "configs" } # copies all files in defconfig dir to the configs/ dir in the u-boot source tree

@@ -1,0 +1,548 @@
+#!/usr/bin/env bash
+# Align EasePi-R2 physical port order to kernel interface names without relying
+# on systemd-networkd/NetworkManager.  It reads /proc/device-tree/eth_order and
+# matches each NIC by its stable PCIe root bus/root port path.  Do not rely on
+# the kernel's initial ethX order or on endpoint bus numbers such as 41/21/11/31;
+# those can differ between cold boot and warm reboot.
+set -u
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+DEFAULT_ORDER="0004:40,0002:20,0001:10,0003:30"
+TMP_PREFIX="r2tmp"
+LOG_TAG="easepi-r2-eth-order"
+WAIT_TIMEOUT_OVERRIDE="${EASEPI_R2_ETH_ORDER_WAIT_TIMEOUT:-}"
+WAIT_INTERVAL="${EASEPI_R2_ETH_ORDER_WAIT_INTERVAL:-1}"
+PCIE_RECOVERY_MODE="${EASEPI_R2_ETH_ORDER_PCIE_RECOVERY:-auto}"
+PCIE_RESCAN_AFTER="${EASEPI_R2_ETH_ORDER_PCIE_RESCAN_AFTER:-4}"
+PCIE_RESCAN_INTERVAL="${EASEPI_R2_ETH_ORDER_PCIE_RESCAN_INTERVAL:-4}"
+WAIT_TIMEOUT=""
+SELECTORS=()
+ARMBIAN_BRANCH=""
+
+log() {
+  echo "[$LOG_TAG] $*"
+  command -v logger >/dev/null 2>&1 && logger -t "$LOG_TAG" -- "$*" || true
+}
+
+read_order() {
+  local order=""
+  if [ -r /proc/device-tree/eth_order ]; then
+    order="$(tr -d '\000' < /proc/device-tree/eth_order 2>/dev/null | tr -d '[:space:]')"
+  fi
+  [ -n "$order" ] || order="$DEFAULT_ORDER"
+  printf '%s\n' "$order"
+}
+
+read_armbian_release_field() {
+  local key="$1"
+  [ -r /etc/armbian-release ] || return 1
+  awk -F= -v key="$key" '$1 == key { print $2; exit }' /etc/armbian-release 2>/dev/null
+}
+
+read_armbian_branch() {
+  local branch=""
+  branch="$(read_armbian_release_field BRANCH || true)"
+  [ -n "$branch" ] || branch="unknown"
+  printf '%s\n' "$branch"
+}
+
+branch_uses_pcie_recovery() {
+  case "$PCIE_RECOVERY_MODE" in
+    yes|force|on|1|true) return 0 ;;
+    no|off|0|false) return 1 ;;
+  esac
+
+  [ "$ARMBIAN_BRANCH" != "vendor" ]
+}
+
+default_wait_timeout() {
+  if [ -n "$WAIT_TIMEOUT_OVERRIDE" ]; then
+    printf '%s\n' "$WAIT_TIMEOUT_OVERRIDE"
+  elif [ "$ARMBIAN_BRANCH" = "vendor" ]; then
+    printf '15\n'
+  else
+    printf '20\n'
+  fi
+}
+
+normalize_selector() {
+  local selector="$1" domain bus rest bus_dec root_bus
+
+  # New format: domain:root-bus, e.g. 0004:40.
+  case "$selector" in
+    [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:[0-9a-fA-F][0-9a-fA-F])
+      printf '%s\n' "$selector"
+      return 0
+      ;;
+  esac
+
+  # Backward compatibility for old DTBs that used endpoint BDFs such as
+  # 0004:41:00.0.  On this board the RTL8125 endpoint sits one bus below the
+  # root port, so root-bus = endpoint-bus - 1.
+  case "$selector" in
+    [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:[0-9a-fA-F][0-9a-fA-F]:*)
+      domain="${selector%%:*}"
+      rest="${selector#*:}"
+      bus="${rest%%:*}"
+      bus_dec=$((16#$bus))
+      if [ "$bus_dec" -gt 0 ]; then
+        root_bus="$(printf '%02x' $((bus_dec - 1)))"
+        printf '%s:%s\n' "$domain" "$root_bus"
+        return 0
+      fi
+      ;;
+  esac
+
+  printf '%s\n' "$selector"
+}
+
+selector_matches_path() {
+  local selector="$1" devpath="$2"
+  case "$devpath" in
+    *"/pci${selector}/"*|*"/${selector}:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+iface_for_selector() {
+  local selector="$1" p i dev
+  for p in /sys/class/net/*; do
+    [ -e "$p" ] || continue
+    i="${p##*/}"
+    [ "$i" = "lo" ] && continue
+    dev="$(readlink -f "$p/device" 2>/dev/null || true)"
+    if selector_matches_path "$selector" "$dev"; then
+      printf '%s\n' "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+selector_for_iface() {
+  local iface="$1" selector dev
+  dev="$(readlink -f "/sys/class/net/$iface/device" 2>/dev/null || true)"
+  [ -n "$dev" ] || return 1
+  for selector in "${SELECTORS[@]}"; do
+    if selector_matches_path "$selector" "$dev"; then
+      printf '%s\n' "$selector"
+      return 0
+    fi
+  done
+  return 1
+}
+
+iface_exists() {
+  [ -e "/sys/class/net/$1" ]
+}
+
+read_board_serial() {
+  local serial=""
+  if [ -r /proc/device-tree/serial-number ]; then
+    serial="$(tr -d '\000' < /proc/device-tree/serial-number 2>/dev/null || true)"
+  fi
+  if [ -z "$serial" ] && [ -r /proc/cpuinfo ]; then
+    serial="$(awk '/^Serial[[:space:]]*:/ { print $3; exit }' /proc/cpuinfo 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$serial"
+}
+
+iface_addr_assign_type() {
+  local iface="$1"
+  [ -r "/sys/class/net/$iface/addr_assign_type" ] || return 1
+  cat "/sys/class/net/$iface/addr_assign_type" 2>/dev/null
+}
+
+iface_has_random_mac() {
+  local iface="$1" assign_type
+  assign_type="$(iface_addr_assign_type "$iface" || true)"
+  [ "$assign_type" = "1" ]
+}
+
+iface_has_global_addr() {
+  local iface="$1"
+  ip -o addr show dev "$iface" scope global 2>/dev/null | grep -q .
+}
+
+stable_mac_for_selector() {
+  local serial="$1" selector="$2" digest byte0
+  digest="$(printf '%s' "${serial:-easepi-r2}:${selector}" | sha256sum | awk '{print $1}')"
+  [ "${#digest}" -ge 12 ] || return 1
+  byte0=$(( (16#${digest:0:2} & 254) | 2 ))
+  printf '%02x:%s:%s:%s:%s:%s\n' \
+    "$byte0" \
+    "${digest:2:2}" "${digest:4:2}" "${digest:6:2}" \
+    "${digest:8:2}" "${digest:10:2}"
+}
+
+ensure_stable_mac() {
+  local iface="$1" selector="$2" serial="$3" current target
+  iface_exists "$iface" || return 1
+  iface_has_random_mac "$iface" || return 0
+  if iface_has_global_addr "$iface"; then
+    log "skip stable MAC for $iface: global address already present"
+    return 0
+  fi
+
+  target="$(stable_mac_for_selector "$serial" "$selector" || true)"
+  [ -n "$target" ] || {
+    log "skip stable MAC for $iface: failed to generate address"
+    return 1
+  }
+
+  current="$(cat "/sys/class/net/$iface/address" 2>/dev/null || true)"
+  if [ "$current" = "$target" ]; then
+    return 0
+  fi
+
+  log "assign stable MAC $target to $iface (selector $selector)"
+  ip link set dev "$iface" down 2>/dev/null || true
+  ip link set dev "$iface" address "$target"
+}
+
+apply_stable_macs() {
+  local serial i selector iface
+  serial="$(read_board_serial)"
+  [ -n "$serial" ] || serial="easepi-r2"
+
+  for i in 0 1 2 3; do
+    selector="${SELECTORS[$i]}"
+    iface="eth$i"
+    ensure_stable_mac "$iface" "$selector" "$serial" || return 1
+  done
+}
+
+unique_iface_name() {
+  local base="$1" name="$1" n=0
+  while iface_exists "$name"; do
+    n=$((n + 1))
+    name="${base}${n}"
+  done
+  printf '%s\n' "$name"
+}
+
+rename_iface() {
+  local old="$1" new="$2"
+  [ -n "$old" ] && [ -n "$new" ] || return 1
+  [ "$old" = "$new" ] && return 0
+  iface_exists "$old" || { log "skip: $old not found while renaming to $new"; return 1; }
+
+  log "rename $old -> $new"
+  ip link set dev "$old" down 2>/dev/null || true
+  ip link set dev "$old" name "$new"
+}
+
+settle_udev() {
+  local timeout="${1:-3}"
+  command -v udevadm >/dev/null 2>&1 && udevadm settle --timeout="$timeout" >/dev/null 2>&1 || true
+}
+
+selector_root_port_bdf() {
+  local selector="$1"
+  printf '%s:00.0\n' "$selector"
+}
+
+selector_root_port_sysfs() {
+  local selector="$1"
+  printf '/sys/bus/pci/devices/%s\n' "$(selector_root_port_bdf "$selector")"
+}
+
+pcie_rescan_selector() {
+  local selector="$1" root dev
+  root="$(selector_root_port_bdf "$selector")"
+  dev="$(selector_root_port_sysfs "$selector")"
+
+  [ -d "$dev" ] || {
+    log "skip PCIe recovery for selector $selector: root port $root not present"
+    return 1
+  }
+
+  log "trigger PCIe recovery for missing selector $selector via root port $root"
+
+  if [ -w "$dev/reset_subordinate" ]; then
+    printf '1\n' > "$dev/reset_subordinate" 2>/dev/null || true
+  fi
+  if [ -w "$dev/rescan" ]; then
+    printf '1\n' > "$dev/rescan" 2>/dev/null || true
+  fi
+  if [ -w /sys/bus/pci/rescan ]; then
+    printf '1\n' > /sys/bus/pci/rescan 2>/dev/null || true
+  fi
+
+  settle_udev 5
+  sleep 1
+}
+
+recover_missing_selectors() {
+  local selector
+  for selector in "$@"; do
+    [ -n "$selector" ] || continue
+    iface_for_selector "$selector" >/dev/null 2>&1 && continue
+    pcie_rescan_selector "$selector" || true
+  done
+}
+
+iface_driver() {
+  local iface="$1" driver
+  driver="$(readlink -f "/sys/class/net/$iface/device/driver" 2>/dev/null || true)"
+  [ -n "$driver" ] || return 1
+  printf '%s\n' "${driver##*/}"
+}
+
+iface_is_usb_net() {
+  local iface="$1" dev driver
+  dev="$(readlink -f "/sys/class/net/$iface/device" 2>/dev/null || true)"
+  driver="$(iface_driver "$iface" || true)"
+
+  case "$driver" in
+    rndis_host|cdc_ether|cdc_ncm|cdc_mbim|qmi_wwan) return 0 ;;
+  esac
+
+  case "$dev" in
+    */usb*/*) return 0 ;;
+  esac
+
+  return 1
+}
+
+relocate_target_blocker() {
+  local target="$1" selector="$2" slot="$3" blocker_selector driver hold
+
+  iface_exists "$target" || return 0
+
+  blocker_selector="$(selector_for_iface "$target" || true)"
+  if [ "$blocker_selector" = "$selector" ]; then
+    return 0
+  fi
+
+  if [ -n "$blocker_selector" ]; then
+    hold="$(unique_iface_name "${TMP_PREFIX}hold${slot}")"
+    log "target $target belongs to another RTL8125 selector $blocker_selector; move it aside as $hold"
+    rename_iface "$target" "$hold"
+    return $?
+  fi
+
+  driver="$(iface_driver "$target" || true)"
+  if iface_is_usb_net "$target"; then
+    if iface_exists lte4g && [ "$target" != "lte4g" ]; then
+      hold="$(unique_iface_name "${TMP_PREFIX}usb${slot}")"
+    else
+      hold="lte4g"
+    fi
+    log "target $target is occupied by USB net ${driver:-unknown}; move it aside as $hold"
+    rename_iface "$target" "$hold"
+    return $?
+  fi
+
+  hold="$(unique_iface_name "${TMP_PREFIX}hold${slot}")"
+  log "target $target is occupied by non-target netdev ${driver:-unknown}; move it aside as $hold"
+  rename_iface "$target" "$hold"
+}
+
+rename_final_iface() {
+  local old="$1" target="$2" selector="$3" slot="$4" attempt rc cur_owner
+
+  [ -n "$old" ] && [ -n "$target" ] || return 1
+  [ "$old" = "$target" ] && return 0
+
+  for attempt in 1 2 3 4 5; do
+    if iface_exists "$target"; then
+      cur_owner="$(selector_for_iface "$target" || true)"
+      if [ "$cur_owner" = "$selector" ]; then
+        log "$target already belongs to selector $selector"
+        return 0
+      fi
+
+      log "target $target is busy before final rename; wait for udev-settle (attempt $attempt)"
+      settle_udev 3
+      if iface_exists "$target"; then
+        relocate_target_blocker "$target" "$selector" "$slot" || return 1
+      fi
+    fi
+
+    if [ -z "$old" ] || ! iface_exists "$old"; then
+      old="$(iface_for_selector "$selector" || true)"
+    fi
+    [ -n "$old" ] && iface_exists "$old" || {
+      log "skip: selector $selector not found while renaming to $target"
+      return 1
+    }
+
+    log "rename $old -> $target"
+    ip link set dev "$old" down 2>/dev/null || true
+    if ip link set dev "$old" name "$target"; then
+      return 0
+    else
+      rc=$?
+    fi
+
+    log "rename $old -> $target failed (rc=$rc); retry after udev-settle"
+    settle_udev 3
+    sleep 1
+  done
+
+  log "failed to rename selector $selector to $target"
+  return 1
+}
+
+report_alignment() {
+  local i selector target cur dev
+  for i in 0 1 2 3; do
+    selector="${SELECTORS[$i]}"
+    target="eth$i"
+    cur="$(iface_for_selector "$selector" || true)"
+    if [ -n "$cur" ]; then
+      dev="$(readlink -f "/sys/class/net/$cur/device" 2>/dev/null || echo unknown)"
+      log "$selector -> $cur (target $target, path $dev)"
+    else
+      log "$selector -> missing (target $target)"
+    fi
+  done
+}
+
+wait_for_all_devices() {
+  local deadline start_time next_recovery_at missing i selector cur
+  deadline=$((SECONDS + WAIT_TIMEOUT))
+  start_time=$SECONDS
+  next_recovery_at=$((start_time + PCIE_RESCAN_AFTER))
+
+  while :; do
+    missing=""
+    for i in 0 1 2 3; do
+      selector="${SELECTORS[$i]}"
+      cur="$(iface_for_selector "$selector" || true)"
+      [ -n "$cur" ] || missing="${missing}${missing:+ }$selector"
+    done
+
+    if [ -z "$missing" ]; then
+      log "all target RTL8125 interfaces are present"
+      return 0
+    fi
+
+    if branch_uses_pcie_recovery && [ "$SECONDS" -ge "$next_recovery_at" ]; then
+      log "missing selectors still present after $((SECONDS - start_time))s; try targeted PCIe recovery: $missing"
+      # shellcheck disable=SC2086
+      recover_missing_selectors $missing
+      next_recovery_at=$((SECONDS + PCIE_RESCAN_INTERVAL))
+      missing=""
+      for i in 0 1 2 3; do
+        selector="${SELECTORS[$i]}"
+        cur="$(iface_for_selector "$selector" || true)"
+        [ -n "$cur" ] || missing="${missing}${missing:+ }$selector"
+      done
+      if [ -z "$missing" ]; then
+        log "all target RTL8125 interfaces are present after PCIe recovery"
+        return 0
+      fi
+    fi
+
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      log "timeout waiting for target interfaces; missing: $missing"
+      report_alignment
+      return 1
+    fi
+
+    log "waiting for target interfaces; missing: $missing"
+    settle_udev 5
+    sleep "$WAIT_INTERVAL"
+  done
+}
+
+verify_alignment() {
+  local i selector target cur ok=1
+  for i in 0 1 2 3; do
+    selector="${SELECTORS[$i]}"
+    target="eth$i"
+    cur="$(iface_for_selector "$selector" || true)"
+    if [ "$cur" = "$target" ]; then
+      log "verified $target -> $(readlink -f "/sys/class/net/$target/device" 2>/dev/null || echo unknown)"
+    else
+      log "verify failed for $selector: current=${cur:-missing}, target=$target"
+      ok=0
+    fi
+  done
+  [ "$ok" = "1" ]
+}
+
+align_once() {
+  local i selector cur target tmp tmp_selector
+
+  # Stage 1: move every target device to a unique temporary name.  Do not run
+  # this unless wait_for_all_devices has confirmed all four target NICs exist.
+  for i in 0 1 2 3; do
+    selector="${SELECTORS[$i]}"
+    tmp="${TMP_PREFIX}${i}"
+    cur="$(iface_for_selector "$selector" || true)"
+    if [ "$cur" != "$tmp" ]; then
+      if iface_exists "$tmp"; then
+        tmp_selector="$(selector_for_iface "$tmp" || true)"
+        if [ "$tmp_selector" != "$selector" ]; then
+          rename_iface "$tmp" "$(unique_iface_name "${TMP_PREFIX}x${i}")" || return 1
+        fi
+      fi
+      rename_iface "$cur" "$tmp" || return 1
+    fi
+  done
+
+  # Stage 2: move temporary names to final eth0-eth3.
+  for i in 0 1 2 3; do
+    selector="${SELECTORS[$i]}"
+    target="eth$i"
+    cur="$(iface_for_selector "$selector" || true)"
+    if [ "$cur" != "$target" ]; then
+      rename_final_iface "$cur" "$target" "$selector" "$i" || return 1
+    fi
+  done
+
+  verify_alignment
+}
+
+main() {
+  if ! command -v ip >/dev/null 2>&1; then
+    log "ip command not found; cannot align port names"
+    exit 0
+  fi
+
+  local order i selector all_ok=1
+  ARMBIAN_BRANCH="$(read_armbian_branch)"
+  WAIT_TIMEOUT="$(default_wait_timeout)"
+  order="$(read_order)"
+  log "branch=$ARMBIAN_BRANCH wait_timeout=${WAIT_TIMEOUT}s pcie_recovery=$(branch_uses_pcie_recovery && printf yes || printf no)"
+  log "eth_order=$order"
+
+  IFS=',' read -r -a SELECTORS <<< "$order"
+  if [ "${#SELECTORS[@]}" -lt 4 ]; then
+    log "eth_order has less than 4 entries; fallback to $DEFAULT_ORDER"
+    IFS=',' read -r -a SELECTORS <<< "$DEFAULT_ORDER"
+  fi
+
+  for i in 0 1 2 3; do
+    selector="$(normalize_selector "${SELECTORS[$i]}")"
+    SELECTORS[$i]="$selector"
+    log "target eth$i selector=$selector"
+  done
+
+  # Quick path: already correct.
+  for i in 0 1 2 3; do
+    if [ "$(iface_for_selector "${SELECTORS[$i]}" || true)" != "eth$i" ]; then
+      all_ok=0
+    fi
+  done
+  if [ "$all_ok" = "1" ]; then
+    log "port order already aligned; nothing to do"
+    apply_stable_macs || true
+    exit 0
+  fi
+
+  if wait_for_all_devices && align_once; then
+    apply_stable_macs || true
+    log "port order aligned successfully"
+    exit 0
+  fi
+
+  log "failed to align port order"
+  report_alignment
+  exit 1
+}
+
+main "$@"

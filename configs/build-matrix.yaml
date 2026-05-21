@@ -1,0 +1,26 @@
+version: 1
+project: EasePi-R2-LiteHost
+board: easepi-r2
+architecture: arm64
+
+image_types:
+  armbian: [minimal]
+
+kernel_aliases:
+  "6.1": vendor
+  "6.18": current
+  "7.0": linux7
+
+targets:
+  - system: armbian
+    release: bookworm
+    note: Debian 12 minimal host image
+    kernels:
+      "6.1": implemented
+
+  - system: armbian
+    release: trixie
+    note: Debian 13 minimal host image
+    kernels:
+      "6.18": implemented
+      "7.0": implemented

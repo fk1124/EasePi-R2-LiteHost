@@ -1,0 +1,13 @@
+[Match]
+Name=eth1
+
+[Link]
+RequiredForOnline=no
+ActivationPolicy=up
+
+[Network]
+Bridge=br-lan
+ConfigureWithoutCarrier=yes
+IgnoreCarrierLoss=yes
+LinkLocalAddressing=no
+IPv6AcceptRA=no

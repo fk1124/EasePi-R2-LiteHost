@@ -1,0 +1,20 @@
+[Unit]
+Description=EasePi-R2 align RTL8125 interface names from device-tree eth_order
+DefaultDependencies=no
+Wants=systemd-udev-trigger.service systemd-udev-settle.service network-pre.target
+After=local-fs.target systemd-udevd.service systemd-udev-trigger.service systemd-udev-settle.service
+Before=network-pre.target network.target systemd-networkd.service NetworkManager.service networking.service dnsmasq.service nftables.service
+ConditionPathExists=/sys/class/net
+StartLimitIntervalSec=45
+StartLimitBurst=2
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/easepi-r2-eth-order
+RemainAfterExit=yes
+TimeoutStartSec=30
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,7 @@
+# Keep DRM nodes usable for normal GPU workloads.
+# Debian/systemd usually ships equivalent rules; these are board-local safeguards.
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", GROUP="video", MODE="0660"
+SUBSYSTEM=="drm", KERNEL=="renderD[0-9]*", GROUP="render", MODE="0660"
+KERNEL=="mali", GROUP="video", MODE="0660"
+KERNEL=="mali[0-9]*", GROUP="video", MODE="0660"
+SUBSYSTEM=="misc", KERNEL=="mali[0-9]*", GROUP="video", MODE="0660"

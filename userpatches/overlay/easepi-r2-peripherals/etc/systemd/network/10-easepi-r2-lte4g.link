@@ -1,0 +1,6 @@
+[Match]
+MACAddress=ac:0c:29:a3:9b:6d
+
+[Link]
+NamePolicy=
+Name=lte4g

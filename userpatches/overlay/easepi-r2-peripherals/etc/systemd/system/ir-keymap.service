@@ -1,0 +1,12 @@
+[Unit]
+Description=Load IR keymap for EasePi-R2
+After=multi-user.target
+ConditionPathExists=/etc/rc_keymaps/easepi_remote
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/bin/ir-keytable -w /etc/rc_keymaps/easepi_remote || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+config:
+  name: rockchip64-7.0
+  kind: kernel
+  type: mainline
+  branch: linux-7.0.y
+
+  dts-directories:
+    - { source: "dt", target: "arch/arm64/boot/dts/rockchip" }
+
+  auto-patch-dt-makefile:
+    - { directory: "arch/arm64/boot/dts/rockchip", config-var: "CONFIG_ARCH_ROCKCHIP" }

@@ -1,0 +1,13 @@
+[Match]
+Name=br-lan
+
+[Link]
+RequiredForOnline=no
+ActivationPolicy=up
+
+[Network]
+Address=10.10.0.1/24
+ConfigureWithoutCarrier=yes
+IPv4Forwarding=yes
+LinkLocalAddressing=no
+IPv6AcceptRA=no

@@ -1,0 +1,14 @@
+[Match]
+Name=lte4g
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+DHCP=ipv4
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+
+[DHCPv4]
+UseDNS=no
+RouteMetric=900

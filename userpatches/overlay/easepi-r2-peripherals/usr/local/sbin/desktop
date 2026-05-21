@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONF_FILE="/etc/easepi-r2-desktop.env"
+
+if [ ! -r "${CONF_FILE}" ]; then
+    echo "Desktop profile is not configured for this image."
+    exit 1
+fi
+
+. "${CONF_FILE}"
+
+DESKTOP_USER="${DESKTOP_USER:-}"
+DESKTOP_SESSION="${DESKTOP_SESSION:-xfce}"
+DESKTOP_START_COMMAND="${DESKTOP_START_COMMAND:-startxfce4}"
+
+if [ -z "${DESKTOP_USER}" ]; then
+    echo "Desktop user is not configured."
+    exit 1
+fi
+
+if ! id -u "${DESKTOP_USER}" >/dev/null 2>&1; then
+    echo "Desktop user '${DESKTOP_USER}' does not exist."
+    exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo /usr/local/sbin/desktop "$@"
+fi
+
+su - "${DESKTOP_USER}" -c 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; exec startx'

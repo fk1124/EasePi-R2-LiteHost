@@ -1,0 +1,13 @@
+# Build outputs
+/output/
+/work/
+*.img
+*.img.xz
+*.sha
+*.log
+/userpatches/overlay/easepi-r2-peripherals/root/*.sh
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
