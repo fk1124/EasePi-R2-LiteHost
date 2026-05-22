@@ -555,7 +555,6 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl disable NetworkManager.service || true
 	# Align RTL8125 interface names before any network manager starts.
 	chroot_sdcard systemctl enable easepi-r2-eth-order.service || true
-	chroot_sdcard systemctl enable easepi-r2-ml307r-option-bind.service || true
 	chroot_sdcard systemctl enable ModemManager.service || true
 	chroot_sdcard systemctl enable easepi-r2-lte4g-ipv6-ra.service || true
 	chroot_sdcard systemctl enable systemd-networkd.service || true
