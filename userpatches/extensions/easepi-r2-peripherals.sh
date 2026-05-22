@@ -208,6 +208,10 @@ modprobe 8021q 2>/dev/null || true
 
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.accept_ra=2 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.accept_ra=2 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.lte4g.accept_ra=2 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.lte4g.autoconf=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1 || true
 
@@ -255,11 +259,11 @@ function easepi_r2_prune_litehost_packages() {
 	[[ "${EASEPI_R2_LITEHOST_PRUNE_PACKAGES}" == "yes" ]] || return 0
 
 	display_alert "EasePi-R2 LiteHost" "Removing unused host networking packages" "info"
-	chroot_sdcard systemctl disable NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
-	chroot_sdcard systemctl mask NetworkManager.service NetworkManager-wait-online.service ModemManager.service avahi-daemon.service cloud-init.service 2>/dev/null || true
+	chroot_sdcard systemctl disable NetworkManager.service NetworkManager-wait-online.service avahi-daemon.service cloud-init.service 2>/dev/null || true
+	chroot_sdcard systemctl mask NetworkManager.service NetworkManager-wait-online.service avahi-daemon.service cloud-init.service 2>/dev/null || true
 	chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y --autoremove \
 		network-manager network-manager-gnome netplan.io ifupdown \
-		isc-dhcp-client isc-dhcp-common modemmanager avahi-daemon avahi-autoipd \
+		isc-dhcp-client isc-dhcp-common avahi-daemon avahi-autoipd \
 		cloud-init unattended-upgrades openresolv resolvconf || true
 }
 
@@ -486,6 +490,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		ppp pppoe curl ca-certificates rsync zstd xz-utils unzip
 		jq htop iotop iftop nload tmux screen vim-tiny nano less lsof strace
 		usbutils pciutils kmod
+		modemmanager usb-modeswitch
 		wpasupplicant hostapd
 		rfkill bluetooth bluez bluez-tools
 		v4l-utils android-tools-adb android-tools-fastboot
@@ -550,6 +555,8 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl disable NetworkManager.service || true
 	# Align RTL8125 interface names before any network manager starts.
 	chroot_sdcard systemctl enable easepi-r2-eth-order.service || true
+	chroot_sdcard systemctl enable ModemManager.service || true
+	chroot_sdcard systemctl enable easepi-r2-lte4g-ipv6-ra.service || true
 	chroot_sdcard systemctl enable systemd-networkd.service || true
 	chroot_sdcard systemctl enable dnsmasq.service || true
 	chroot_sdcard systemctl enable nftables.service || true

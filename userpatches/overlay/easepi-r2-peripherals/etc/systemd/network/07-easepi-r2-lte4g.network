@@ -5,10 +5,19 @@ Name=lte4g
 RequiredForOnline=no
 
 [Network]
-DHCP=ipv4
-IPv6AcceptRA=no
-LinkLocalAddressing=no
+DHCP=yes
+IPv6AcceptRA=yes
+LinkLocalAddressing=ipv6
 
 [DHCPv4]
 UseDNS=no
+UseRoutes=no
 RouteMetric=900
+
+[IPv6AcceptRA]
+UseDNS=no
+RouteMetric=900
+
+[DHCPv6]
+UseDNS=no
+WithoutRA=solicit

@@ -1,0 +1,12 @@
+[Unit]
+Description=Enable IPv6 RA on EasePi-R2 LTE management port
+After=systemd-networkd.service easepi-r2-eth-order.service
+Wants=systemd-networkd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/easepi-r2-lte4g-ipv6-ra
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
