@@ -1,0 +1,13 @@
+[Unit]
+Description=Bind ML307R AT ports to option driver
+After=systemd-modules-load.service systemd-udevd.service
+Before=ModemManager.service
+Wants=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/easepi-r2-ml307r-option-bind
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
