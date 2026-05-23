@@ -1,4 +1,4 @@
-# EasePi-R2 Peripherals Extension: IR + AP6255 Bluetooth + systemd-networkd router base
+# EasePi-R2 Peripherals Extension: IR + AP6255 Bluetooth + LiteHost runtime base
 # This extension intentionally keeps the classic userpatches/extensions/*.sh path
 # for broad Armbian compatibility, while reading overlay files from the kit's
 # userpatches/overlay/easepi-r2-peripherals directory.
@@ -467,13 +467,10 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	# Armbian's extension path does not consume rootfs/debian/packages-*.txt.
 	# Install the LiteHost runtime explicitly so first boot is ready for
 	# LXC OpenWrt, LXC Debian, and Redroid workloads.
-	# Important: the overlay already contains /etc/nftables.conf. If nftables is
-	# installed after that file exists, dpkg asks a conffile question and Armbian's
-	# non-interactive chroot build fails with "end of file on stdin". Temporarily
-	# move our custom nftables.conf away, install packages, then restore it. The
-	# dpkg options are kept as an additional guard for future conffile changes.
+	# If a base image already has /etc/nftables.conf, move it aside while
+	# installing nftables to avoid non-interactive conffile prompts.
 	display_alert "EasePi-R2 LiteHost" "Installing host runtime packages" "info"
-	local R2_NFT_BACKUP="${SDCARD}/tmp/easepi-r2-nftables.conf.router"
+	local R2_NFT_BACKUP="${SDCARD}/tmp/easepi-r2-nftables.conf.backup"
 	mkdir -p "${SDCARD}/tmp"
 	easepi_r2_stage_vendor_libmali
 	if [[ -f "${SDCARD}/etc/nftables.conf" ]]; then
@@ -482,6 +479,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	easepi_r2_preseed_litehost_debconf
 	local EASEPI_R2_COMMON_RUNTIME=(
 		systemd-container dbus-user-session
+		systemd-resolved
 		lxc lxcfs lxc-templates uidmap libpam-cgfs
 		debootstrap mmdebstrap qemu-user-static binfmt-support
 		fuse-overlayfs slirp4netns criu
@@ -556,10 +554,13 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	# Align RTL8125 interface names before any network manager starts.
 	chroot_sdcard systemctl enable easepi-r2-eth-order.service || true
 	chroot_sdcard systemctl disable ModemManager.service || true
-	chroot_sdcard systemctl disable systemd-networkd.service || true
+	chroot_sdcard systemctl enable systemd-networkd.service || true
+	chroot_sdcard systemctl enable systemd-resolved.service || true
 	chroot_sdcard systemctl disable dnsmasq.service || true
 	chroot_sdcard systemctl disable nftables.service || true
 	chroot_sdcard systemctl disable lxc-net.service || true
+	rm -f "${SDCARD}/etc/resolv.conf"
+	ln -sfn /run/systemd/resolve/resolv.conf "${SDCARD}/etc/resolv.conf"
 	chroot_sdcard systemctl enable lxcfs.service || true
 	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
 		chroot_sdcard systemctl enable easepi-r2-redroid-host-prep.service || true

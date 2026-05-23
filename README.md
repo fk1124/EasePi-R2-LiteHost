@@ -95,6 +95,7 @@ ARMBIAN_BUILD_DIR=/path/to/build bash build-image.sh armbian trixie 6.18 minimal
 - `6.1` 映射到 `vendor`，`6.18` 映射到 `current`，`7.0` 映射到 `linux7`。
 - vendor 6.1 保留 Mali/libmali 路线，默认不会加载 Panthor。
 - 构建时会清理 NetworkManager、netplan、cloud-init、Avahi 等宿主机不需要的组件。
-- 镜像默认不创建 `br-lan`、不占用 `10.10.0.1`、不启用 `lxcbr0`，也不预设 DHCP/NAT；网络由后续脚本或用户自行配置。
+- 镜像默认只让 `eth0` 作为管理口通过 DHCP 获取地址，方便首次开机 SSH 和上网。
+- 镜像默认不创建 `br-lan`、不占用 `10.10.0.1`、不启用 `lxcbr0`，也不预设 DHCP/NAT；这些网络角色由后续脚本或用户自行配置。
 - 构建输出仍由 Armbian build 系统写入 `build/output/images/`。
 - 常用参数示例：`CPUTHREADS=8`、`REGIONAL_MIRROR=china`、`MAINLINE_MIRROR=google`。
