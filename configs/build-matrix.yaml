@@ -4,7 +4,7 @@ board: easepi-r2
 architecture: arm64
 
 image_types:
-  armbian: [minimal]
+  armbian: [minimal, slim]
 
 kernel_aliases:
   "6.1": vendor
@@ -15,12 +15,18 @@ targets:
   - system: armbian
     release: bookworm
     note: Debian 12 LiteHost image for LXC OpenWrt, LXC Debian, and Redroid
+    image_types:
+      minimal: standard LiteHost with common runtime packages
+      slim: fast-build base; use 0.sh, 1.sh, and 2.sh for post-install features
     kernels:
       "6.1": implemented
 
   - system: armbian
     release: trixie
     note: Debian 13 LiteHost image for LXC OpenWrt, LXC Debian, and Redroid
+    image_types:
+      minimal: standard LiteHost with common runtime packages
+      slim: fast-build base; use 0.sh, 1.sh, and 2.sh for post-install features
     kernels:
       "6.18": implemented
       "7.0": implemented

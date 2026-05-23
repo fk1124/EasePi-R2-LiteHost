@@ -9,9 +9,16 @@ Usage:
   bash build-image.sh armbian bookworm 6.1 minimal
   bash build-image.sh armbian trixie 6.18 minimal
   bash build-image.sh armbian trixie 7.0 minimal
+  bash build-image.sh armbian bookworm 6.1 slim
+  bash build-image.sh armbian trixie 6.18 slim
+  bash build-image.sh armbian trixie 7.0 slim
 
 EasePi-R2-LiteHost builds lightweight Armbian host images for LXC OpenWrt,
 LXC Debian, and Redroid on EasePi-R2.
+
+Image types:
+  minimal -> standard LiteHost with common runtime packages preinstalled
+  slim    -> fast-build LiteHost base; install network/LXC/Redroid extras later
 
 Kernel aliases:
   6.1  -> vendor
@@ -67,7 +74,10 @@ KERNEL_PROFILE="$(normalize_kernel "${KERNEL}")"
 case "${SYSTEM}:${RELEASE}:${KERNEL_PROFILE}:${IMAGE_TYPE}" in
     armbian:bookworm:vendor:minimal|\
     armbian:trixie:current:minimal|\
-    armbian:trixie:linux7:minimal)
+    armbian:trixie:linux7:minimal|\
+    armbian:bookworm:vendor:slim|\
+    armbian:trixie:current:slim|\
+    armbian:trixie:linux7:slim)
         exec bash "${REPO_DIR}/build.sh" "${KERNEL_PROFILE}" "${RELEASE}" "${IMAGE_TYPE}"
         ;;
     *)

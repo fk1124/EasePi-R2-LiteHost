@@ -8,10 +8,19 @@
 : "${EASEPI_R2_LIBMALI_DEB_SHA256:=32ffe853e8d56295284637252f1da15dd868a8f7c6b8da6b9f77616ba285eb1a}"
 : "${EASEPI_R2_VENDOR_HDMI_DEBUG:=no}"
 : "${EASEPI_R2_LITEHOST_PRUNE_PACKAGES:=yes}"
-: "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP:=yes}"
+: "${EASEPI_R2_LITEHOST_PROFILE:=standard}"
+case "${EASEPI_R2_LITEHOST_PROFILE}" in
+	standard|slim) ;;
+	*) echo "ERROR: unsupported EASEPI_R2_LITEHOST_PROFILE=${EASEPI_R2_LITEHOST_PROFILE}" >&2; exit 1 ;;
+esac
+if [[ "${EASEPI_R2_LITEHOST_PROFILE}" == "slim" ]]; then
+	: "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP:=no}"
+else
+	: "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP:=yes}"
+fi
 
 function extension_prepare_config__easepi_r2_peripherals() {
-	display_alert "Extension: EasePi-R2 Peripherals" "IR + Bluetooth + networkd router base" "info"
+	display_alert "Extension: EasePi-R2 Peripherals" "LiteHost ${EASEPI_R2_LITEHOST_PROFILE} runtime base" "info"
 }
 
 function easepi_r2_write_gpu_profile() {
@@ -111,6 +120,7 @@ EOF_SEED_CLOCK_SERVICE
 
 function easepi_r2_stage_vendor_libmali() {
 	[[ "${BRANCH:-current}" == "vendor" ]] || return 0
+	[[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" ]] || return 0
 	[[ "${EASEPI_R2_VENDOR_GPU_STACK}" == "libmali" ]] || return 0
 
 	local cache_root="${SRC:-/tmp}/cache/easepi-r2-libmali"
@@ -230,7 +240,8 @@ RemainAfterExit=yes
 WantedBy=sysinit.target
 EOF_RESOLVED_SERVICE
 
-	cat > "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep" <<'EOF_REDROID_PREP'
+	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
+		cat > "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep" <<'EOF_REDROID_PREP'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -268,9 +279,9 @@ for dev in \
 	chmod 0666 "${dev}" 2>/dev/null || true
 done
 EOF_REDROID_PREP
-	chmod 0755 "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep"
+		chmod 0755 "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep"
 
-	cat > "${SDCARD}/etc/systemd/system/easepi-r2-redroid-host-prep.service" <<'EOF_REDROID_SERVICE'
+		cat > "${SDCARD}/etc/systemd/system/easepi-r2-redroid-host-prep.service" <<'EOF_REDROID_SERVICE'
 [Unit]
 Description=Prepare BinderFS and Ashmem for Redroid containers
 After=systemd-modules-load.service local-fs.target
@@ -285,7 +296,6 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF_REDROID_SERVICE
 
-	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
 		ln -sfn ../easepi-r2-redroid-host-prep.service \
 			"${SDCARD}/etc/systemd/system/multi-user.target.wants/easepi-r2-redroid-host-prep.service"
 	fi
@@ -512,42 +522,55 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		mv "${SDCARD}/etc/nftables.conf" "${R2_NFT_BACKUP}"
 	fi
 	easepi_r2_preseed_litehost_debconf
-	local EASEPI_R2_COMMON_RUNTIME=(
-		systemd-container dbus-user-session
-		systemd-resolved
-		lxc lxcfs lxc-templates uidmap libpam-cgfs
-		debootstrap mmdebstrap qemu-user-static binfmt-support
-		fuse-overlayfs slirp4netns criu
-		iproute2 iputils-ping ethtool bridge-utils
-		dnsmasq nftables iptables ebtables arptables
-		conntrack ipset tcpdump socat iperf3
-		ppp pppoe curl ca-certificates rsync zstd xz-utils unzip
-		jq htop iotop iftop nload tmux screen vim-tiny nano less lsof strace
-		usbutils pciutils kmod
-		modemmanager usb-modeswitch
-		wpasupplicant hostapd
-		rfkill bluetooth bluez bluez-tools
-		v4l-utils android-tools-adb android-tools-fastboot
-	)
-	local EASEPI_R2_GPU_RUNTIME=()
-	if [[ "${BRANCH:-current}" == "vendor" ]]; then
-		EASEPI_R2_GPU_RUNTIME=(libdrm2 libgbm1 ocl-icd-libopencl1 clinfo)
-	else
-		EASEPI_R2_GPU_RUNTIME=(
-			libdrm2 libegl-mesa0 libgles2 libgl1-mesa-dri
-			mesa-vulkan-drivers mesa-utils vulkan-tools
-			kmscube glmark2-es2-drm
+	local EASEPI_R2_COMMON_RUNTIME=()
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" == "slim" ]]; then
+		EASEPI_R2_COMMON_RUNTIME=(
+			openssh-server systemd-resolved
+			iproute2 iputils-ping ethtool
+			curl ca-certificates kmod usbutils pciutils
 		)
+	else
+		EASEPI_R2_COMMON_RUNTIME=(
+			systemd-container dbus-user-session
+			systemd-resolved
+			lxc lxcfs lxc-templates uidmap libpam-cgfs
+			debootstrap mmdebstrap qemu-user-static binfmt-support
+			fuse-overlayfs slirp4netns criu
+			iproute2 iputils-ping ethtool bridge-utils
+			dnsmasq nftables iptables ebtables arptables
+			conntrack ipset tcpdump socat iperf3
+			ppp pppoe curl ca-certificates rsync zstd xz-utils unzip
+			jq htop iotop iftop nload tmux screen vim-tiny nano less lsof strace
+			usbutils pciutils kmod
+			modemmanager usb-modeswitch
+			wpasupplicant hostapd
+			rfkill bluetooth bluez bluez-tools
+			v4l-utils android-tools-adb android-tools-fastboot
+		)
+	fi
+	local EASEPI_R2_GPU_RUNTIME=()
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" ]]; then
+		if [[ "${BRANCH:-current}" == "vendor" ]]; then
+			EASEPI_R2_GPU_RUNTIME=(libdrm2 libgbm1 ocl-icd-libopencl1 clinfo)
+		else
+			EASEPI_R2_GPU_RUNTIME=(
+				libdrm2 libegl-mesa0 libgles2 libgl1-mesa-dri
+				mesa-vulkan-drivers mesa-utils vulkan-tools
+				kmscube glmark2-es2-drm
+			)
+		fi
 	fi
 	chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update || true
 	easepi_r2_apt_install_best_effort \
 		"${EASEPI_R2_COMMON_RUNTIME[@]}" \
 		"${EASEPI_R2_GPU_RUNTIME[@]}"
-	easepi_r2_apt_install_best_effort bluez-firmware || true
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" ]]; then
+		easepi_r2_apt_install_best_effort bluez-firmware || true
+	fi
 	if [[ -f "${R2_NFT_BACKUP}" ]]; then
 		mv "${R2_NFT_BACKUP}" "${SDCARD}/etc/nftables.conf"
 	fi
-	if [[ "${BRANCH:-current}" == "vendor" && "${EASEPI_R2_VENDOR_GPU_STACK}" == "libmali" && -f "${SDCARD}/tmp/easepi-r2-libmali.deb" ]]; then
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" && "${BRANCH:-current}" == "vendor" && "${EASEPI_R2_VENDOR_GPU_STACK}" == "libmali" && -f "${SDCARD}/tmp/easepi-r2-libmali.deb" ]]; then
 		chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update || true
 		easepi_r2_apt_install_best_effort libdrm2 libgbm1 ocl-icd-libopencl1 clinfo v4l-utils ca-certificates
 		chroot_sdcard /usr/bin/env DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/easepi-r2-libmali.deb || \
@@ -564,7 +587,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		chroot_sdcard systemctl enable ir-keymap.service || true
 	fi
 
-	if [[ -f "${SDCARD}/etc/systemd/system/bluetooth-hciattach.service" ]]; then
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" && -f "${SDCARD}/etc/systemd/system/bluetooth-hciattach.service" ]]; then
 		chroot_sdcard systemctl enable bluetooth-hciattach.service || true
 	fi
 
@@ -595,7 +618,9 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl disable nftables.service || true
 	chroot_sdcard systemctl disable lxc-net.service || true
 	chroot_sdcard systemctl enable easepi-r2-resolved-firstboot.service || true
-	chroot_sdcard systemctl enable lxcfs.service || true
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" ]]; then
+		chroot_sdcard systemctl enable lxcfs.service || true
+	fi
 	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
 		chroot_sdcard systemctl enable easepi-r2-redroid-host-prep.service || true
 	fi
@@ -604,6 +629,8 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl disable systemd-networkd-wait-online.service || true
 	chroot_sdcard systemctl mask systemd-networkd-wait-online.service || true
 
-	chroot_sdcard systemctl enable bluetooth.service || true
+	if [[ "${EASEPI_R2_LITEHOST_PROFILE}" != "slim" ]]; then
+		chroot_sdcard systemctl enable bluetooth.service || true
+	fi
 	easepi_r2_write_build_time_seed
 }

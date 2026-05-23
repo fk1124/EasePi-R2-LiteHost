@@ -2,7 +2,7 @@
 
 **EasePi-R2** 轻量宿主系统构建项目，以 Armbian minimal 为底座，面向 LXC OpenWrt、LXC Debian 和 Redroid。
 
-本仓库从 [EasePi-R2-Image-Build](https://github.com/fk1124/EasePi-R2-Image-Build) 精简而来，只保留 LiteHost 需要的 3 个 Armbian minimal 镜像目标，并预置 LXC、BinderFS/Redroid 等宿主基础能力。
+本仓库从 [EasePi-R2-Image-Build](https://github.com/fk1124/EasePi-R2-Image-Build) 精简而来，保留 LiteHost 需要的 Armbian minimal 镜像目标，并提供标准版与精简版两种构建方式。
 
 ## 编译环境要求
 
@@ -54,7 +54,7 @@ chmod +x build-image.sh build.sh scripts/*.sh
 ~/rk3588_build/
 |-- build/                  # Armbian 官方 build 源码
 '-- EasePi-R2-LiteHost/     # 本仓库
-    |-- build-image.sh      # 统一构建入口，只接受 3 个目标
+    |-- build-image.sh      # 统一构建入口，只接受 LiteHost 目标
     |-- build.sh            # Armbian minimal 构建入口
     |-- configs/            # LiteHost 目标矩阵
     |-- scripts/            # 构建辅助脚本
@@ -76,6 +76,9 @@ cd ~/rk3588_build/EasePi-R2-LiteHost
 | Armbian bookworm 6.1 minimal | vendor | `bash build-image.sh armbian bookworm 6.1 minimal` |
 | Armbian trixie 6.18 minimal | current | `bash build-image.sh armbian trixie 6.18 minimal` |
 | Armbian trixie 7.0 minimal | linux7 | `bash build-image.sh armbian trixie 7.0 minimal` |
+| Armbian bookworm 6.1 slim | vendor | `bash build-image.sh armbian bookworm 6.1 slim` |
+| Armbian trixie 6.18 slim | current | `bash build-image.sh armbian trixie 6.18 slim` |
+| Armbian trixie 7.0 slim | linux7 | `bash build-image.sh armbian trixie 7.0 slim` |
 
 示例：
 
@@ -93,6 +96,8 @@ ARMBIAN_BUILD_DIR=/path/to/build bash build-image.sh armbian trixie 6.18 minimal
 
 - 本仓库只做 Armbian minimal，不包含 server、desktop、Debian/Ubuntu BSP、Alpine、Fedora、Arch、Kali、OpenWrt 等目标。
 - `6.1` 映射到 `vendor`，`6.18` 映射到 `current`，`7.0` 映射到 `linux7`。
+- `minimal` 是标准 LiteHost，会预装常用 LXC/网络/Redroid 运行包。
+- `slim` 是快速构建底座，只保留 SSH、`eth0` DHCP、基础联网工具和内核能力；网络、LXC、Redroid 依赖分别交给 `0.sh`、`1.sh`、`2.sh` 后装。
 - vendor 6.1 保留 Mali/libmali 路线，默认不会加载 Panthor。
 - 构建时会清理 NetworkManager、netplan、cloud-init、Avahi 等宿主机不需要的组件。
 - 镜像默认只让 `eth0` 作为管理口通过 DHCP 获取地址，方便首次开机 SSH 和上网。

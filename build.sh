@@ -21,11 +21,17 @@ Usage:
   bash build.sh vendor bookworm minimal
   bash build.sh current trixie minimal
   bash build.sh linux7 trixie minimal
+  bash build.sh vendor bookworm slim
+  bash build.sh current trixie slim
+  bash build.sh linux7 trixie slim
 
 Prefer the public dispatcher:
   bash build-image.sh armbian bookworm 6.1 minimal
   bash build-image.sh armbian trixie 6.18 minimal
   bash build-image.sh armbian trixie 7.0 minimal
+  bash build-image.sh armbian bookworm 6.1 slim
+  bash build-image.sh armbian trixie 6.18 slim
+  bash build-image.sh armbian trixie 7.0 slim
 USAGE
 }
 
@@ -44,7 +50,8 @@ if [ "${BRANCH}" = "linux7" ]; then
 fi
 
 case "${BRANCH}:${RELEASE}:${IMAGE_TYPE}" in
-    vendor:bookworm:minimal|current:trixie:minimal|linux7:trixie:minimal) ;;
+    vendor:bookworm:minimal|current:trixie:minimal|linux7:trixie:minimal|\
+    vendor:bookworm:slim|current:trixie:slim|linux7:trixie:slim) ;;
     *)
         echo "ERROR: unsupported LiteHost target: ${BRANCH} ${RELEASE} ${IMAGE_TYPE}"
         usage
@@ -99,6 +106,14 @@ GITHUB_MIRROR=""
 KERNEL_GIT="${KERNEL_GIT:-shallow}"
 CPUTHREADS="${CPUTHREADS:-$(nproc)}"
 EASEPI_R2_INHERIT_HOST_GIT_CONFIG="${EASEPI_R2_INHERIT_HOST_GIT_CONFIG:-no}"
+case "${IMAGE_TYPE}" in
+    slim)
+        EASEPI_R2_LITEHOST_PROFILE="${EASEPI_R2_LITEHOST_PROFILE:-slim}"
+        ;;
+    minimal)
+        EASEPI_R2_LITEHOST_PROFILE="${EASEPI_R2_LITEHOST_PROFILE:-standard}"
+        ;;
+esac
 
 ORAS_PREFETCH="${ORAS_PREFETCH:-yes}"
 ORAS_VERSION="${ORAS_VERSION:-1.3.1}"
@@ -751,6 +766,7 @@ printf 'Armbian branch  : %s\n' "${ARMBIAN_BRANCH}"
 printf 'Kernel profile  : %s\n' "${EASEPI_R2_KERNEL_PROFILE:-default}"
 printf 'Release         : %s\n' "${RELEASE}"
 printf 'Image type      : %s\n' "${IMAGE_TYPE}"
+printf 'LiteHost profile: %s\n' "${EASEPI_R2_LITEHOST_PROFILE}"
 printf 'Role            : LXC OpenWrt + LXC Debian + Redroid host\n'
 printf 'Kernel git      : %s\n' "${KERNEL_GIT}"
 printf 'Regional mirror : %s\n' "${REGIONAL_MIRROR:-none}"
@@ -797,6 +813,8 @@ COMPILE_ARGS=(
 if [ -n "${EASEPI_R2_KERNEL_PROFILE}" ]; then
     COMPILE_ARGS+=("EASEPI_R2_KERNEL_PROFILE=${EASEPI_R2_KERNEL_PROFILE}")
 fi
+
+COMPILE_ARGS+=("EASEPI_R2_LITEHOST_PROFILE=${EASEPI_R2_LITEHOST_PROFILE}")
 
 if [ "${EASEPI_R2_KERNEL_PROFILE}" = "linux7" ]; then
     COMPILE_ARGS+=(

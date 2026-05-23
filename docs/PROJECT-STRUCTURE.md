@@ -3,7 +3,7 @@
 `EasePi-R2-LiteHost` is a focused Armbian minimal based host image build kit for EasePi-R2. The images are prepared for LXC OpenWrt, LXC Debian, and Redroid workloads.
 
 ```text
-build-image.sh                 Public dispatcher for the three LiteHost targets
+build-image.sh                 Public dispatcher for the LiteHost targets
 build.sh                       Native Armbian minimal image adapter
 configs/build-matrix.yaml      LiteHost target matrix
 scripts/armbian-patch-guard.sh Armbian patch compatibility helper
@@ -18,12 +18,17 @@ work/                          Temporary generated userpatches and caches, ignor
 bash build-image.sh armbian bookworm 6.1 minimal
 bash build-image.sh armbian trixie 6.18 minimal
 bash build-image.sh armbian trixie 7.0 minimal
+bash build-image.sh armbian bookworm 6.1 slim
+bash build-image.sh armbian trixie 6.18 slim
+bash build-image.sh armbian trixie 7.0 slim
 ```
 
 ## Boundaries
 
-- `build-image.sh` only accepts the three LiteHost targets.
+- `build-image.sh` only accepts the six LiteHost targets.
 - `build.sh` only runs native Armbian minimal builds.
+- `minimal` builds preinstall common LXC/network/Redroid runtime packages.
+- `slim` builds keep the image small and expect `0.sh`, `1.sh`, and `2.sh` to install optional runtime dependencies later.
 - Built images keep `eth0` as a DHCP management port for first-boot SSH and internet access.
 - Built images intentionally do not pre-create `br-lan`, claim `10.10.0.1`, enable `lxcbr0`, or ship default DHCP/NAT rules.
 - `userpatches/kernel/rk35xx-vendor-6.1/` serves the Bookworm 6.1 vendor target.
