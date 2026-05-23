@@ -195,6 +195,41 @@ EOF_LXC_USERNET
 USE_LXC_BRIDGE="false"
 EOF_LXC_NET
 
+	cat > "${SDCARD}/usr/local/sbin/easepi-r2-resolved-firstboot" <<'EOF_RESOLVED_FIRSTBOOT'
+#!/usr/bin/env sh
+set -eu
+
+state_dir="/etc/easepi-r2-litehost"
+done_file="${state_dir}/resolved-resolvconf.done"
+
+[ ! -e "${done_file}" ] || exit 0
+
+mkdir -p "${state_dir}"
+rm -f /etc/resolv.conf
+ln -sfn /run/systemd/resolve/resolv.conf /etc/resolv.conf
+touch "${done_file}"
+
+exit 0
+EOF_RESOLVED_FIRSTBOOT
+	chmod 0755 "${SDCARD}/usr/local/sbin/easepi-r2-resolved-firstboot"
+
+	cat > "${SDCARD}/etc/systemd/system/easepi-r2-resolved-firstboot.service" <<'EOF_RESOLVED_SERVICE'
+[Unit]
+Description=Point resolv.conf at systemd-resolved after first boot
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target systemd-resolved.service systemd-networkd.service
+ConditionPathExists=!/etc/easepi-r2-litehost/resolved-resolvconf.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/easepi-r2-resolved-firstboot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+EOF_RESOLVED_SERVICE
+
 	cat > "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep" <<'EOF_REDROID_PREP'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -559,8 +594,7 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 	chroot_sdcard systemctl disable dnsmasq.service || true
 	chroot_sdcard systemctl disable nftables.service || true
 	chroot_sdcard systemctl disable lxc-net.service || true
-	rm -f "${SDCARD}/etc/resolv.conf"
-	ln -sfn /run/systemd/resolve/resolv.conf "${SDCARD}/etc/resolv.conf"
+	chroot_sdcard systemctl enable easepi-r2-resolved-firstboot.service || true
 	chroot_sdcard systemctl enable lxcfs.service || true
 	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
 		chroot_sdcard systemctl enable easepi-r2-redroid-host-prep.service || true
