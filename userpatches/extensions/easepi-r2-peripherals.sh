@@ -184,15 +184,16 @@ function easepi_r2_configure_litehost_defaults() {
 lxc.include = /usr/share/lxc/config/common.conf
 lxc.apparmor.profile = generated
 lxc.apparmor.allow_nesting = 1
-lxc.net.0.type = veth
-lxc.net.0.link = br-lan
-lxc.net.0.flags = up
-lxc.net.0.name = eth0
 EOF_LXC_DEFAULT
 
 	cat > "${SDCARD}/etc/lxc/lxc-usernet" <<'EOF_LXC_USERNET'
-root veth br-lan 32
+# LiteHost does not create a default LXC bridge. Container networking is
+# configured later by EasePi-R2-Script or by the user.
 EOF_LXC_USERNET
+
+	cat > "${SDCARD}/etc/default/lxc-net" <<'EOF_LXC_NET'
+USE_LXC_BRIDGE="false"
+EOF_LXC_NET
 
 	cat > "${SDCARD}/usr/local/sbin/easepi-r2-redroid-host-prep" <<'EOF_REDROID_PREP'
 #!/usr/bin/env bash
@@ -238,7 +239,7 @@ EOF_REDROID_PREP
 [Unit]
 Description=Prepare BinderFS and Ashmem for Redroid containers
 After=systemd-modules-load.service local-fs.target
-Before=lxc.service lxc-net.service
+Before=lxc.service
 
 [Service]
 Type=oneshot
@@ -534,13 +535,12 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 		chroot_sdcard systemctl enable bluetooth-hciattach.service || true
 	fi
 
-
-	# Router base: systemd-networkd owns WAN/LAN/lte4g, dnsmasq serves br-lan DHCP, nftables does NAT.
-	# Disable netplan YAML because generated /run/systemd/network/10-netplan-*.network
-	# can win systemd-networkd first-match before EasePi-R2 bridge slave files.
-	mkdir -p "${SDCARD}/etc/easepi-r2-router/disabled-netplan-build" "${SDCARD}/etc/easepi-r2-router/disabled-networkd-build"
+	# LiteHost is only the container host base. Do not pre-create br-lan,
+	# lxcbr0, DHCP, NAT, or LTE data-plane rules in the image; those are owned
+	# by EasePi-R2-Script/0.sh, 1.sh, or the user's later configuration.
+	mkdir -p "${SDCARD}/etc/easepi-r2-litehost/disabled-netplan-build" "${SDCARD}/etc/easepi-r2-litehost/disabled-networkd-build"
 	if [[ -d "${SDCARD}/etc/netplan" ]]; then
-		find "${SDCARD}/etc/netplan" -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) -exec mv -t "${SDCARD}/etc/easepi-r2-router/disabled-netplan-build" {} + 2>/dev/null || true
+		find "${SDCARD}/etc/netplan" -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) -exec mv -t "${SDCARD}/etc/easepi-r2-litehost/disabled-netplan-build" {} + 2>/dev/null || true
 	fi
 	if [[ -d "${SDCARD}/etc/systemd/network" ]]; then
 		for f in "${SDCARD}"/etc/systemd/network/*.network; do
@@ -548,18 +548,18 @@ function post_customize_image__enable_easepi_r2_peripheral_services() {
 			b="$(basename "$f")"
 			case "$b" in
 				*easepi-r2*.network) ;;
-				*) mv "$f" "${SDCARD}/etc/easepi-r2-router/disabled-networkd-build/$b" 2>/dev/null || true ;;
+				*) mv "$f" "${SDCARD}/etc/easepi-r2-litehost/disabled-networkd-build/$b" 2>/dev/null || true ;;
 			esac
 		done
 	fi
 	chroot_sdcard systemctl disable NetworkManager.service || true
 	# Align RTL8125 interface names before any network manager starts.
 	chroot_sdcard systemctl enable easepi-r2-eth-order.service || true
-	chroot_sdcard systemctl enable ModemManager.service || true
-	chroot_sdcard systemctl enable easepi-r2-lte4g-ipv6-ra.service || true
-	chroot_sdcard systemctl enable systemd-networkd.service || true
-	chroot_sdcard systemctl enable dnsmasq.service || true
-	chroot_sdcard systemctl enable nftables.service || true
+	chroot_sdcard systemctl disable ModemManager.service || true
+	chroot_sdcard systemctl disable systemd-networkd.service || true
+	chroot_sdcard systemctl disable dnsmasq.service || true
+	chroot_sdcard systemctl disable nftables.service || true
+	chroot_sdcard systemctl disable lxc-net.service || true
 	chroot_sdcard systemctl enable lxcfs.service || true
 	if [[ "${EASEPI_R2_LITEHOST_ENABLE_REDROID_PREP}" == "yes" ]]; then
 		chroot_sdcard systemctl enable easepi-r2-redroid-host-prep.service || true

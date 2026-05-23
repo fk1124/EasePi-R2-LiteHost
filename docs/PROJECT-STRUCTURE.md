@@ -24,6 +24,7 @@ bash build-image.sh armbian trixie 7.0 minimal
 
 - `build-image.sh` only accepts the three LiteHost targets.
 - `build.sh` only runs native Armbian minimal builds.
+- Built images intentionally do not pre-create `br-lan`, claim `10.10.0.1`, enable `lxcbr0`, or ship default DHCP/NAT rules.
 - `userpatches/kernel/rk35xx-vendor-6.1/` serves the Bookworm 6.1 vendor target.
 - `userpatches/kernel/archive/rockchip64-6.18/` serves the Trixie 6.18 current target.
 - `userpatches/kernel/archive/rockchip64-7.0/` serves the Trixie 7.0 linux7 target.
